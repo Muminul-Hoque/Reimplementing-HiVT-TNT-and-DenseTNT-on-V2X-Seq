@@ -8,7 +8,6 @@ All three models originally target the Argoverse dataset. Getting them to work o
 
 ## Setup
 
-**Server:** yzs1  
 **Conda envs:** HiVT (for HiVT), TNT (for TNT and DenseTNT)  
 **GPU:** RTX A6000 (49GB) — single GPU for all runs
 
