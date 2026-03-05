@@ -1,6 +1,6 @@
 # Reimplementing HiVT, TNT, and DenseTNT on V2X-Seq
 
-This repo contains instructions and code to run HiVT, TNT, and DenseTNT as trajectory prediction baselines on the [V2X-Seq](https://github.com/AIR-THU/DAIR-V2X-Seq) dataset (cooperative vehicle-infrastructure subset, TFD split). All three models were originally designed for Argoverse. Getting them working on V2X-Seq required fixing several bugs in the evaluation pipelines — mostly coordinate frame mismatches and missing dataset adapter functions.
+This repo contains instructions and code to run HiVT, TNT, and DenseTNT as trajectory prediction baselines on the [V2X-Seq](https://github.com/AIR-THU/DAIR-V2X-Seq) dataset (cooperative vehicle-infrastructure subset, TFD split). All three models were originally designed for Argoverse. Getting them working on V2X-Seq required fixing several bugs in the evaluation pipelines — coordinate frame mismatches, missing dataset adapter functions, and environment compatibility issues.
 
 ## Results
 
@@ -16,12 +16,12 @@ Evaluated on the V2X-Seq val split (10,229 scenes), prediction horizon = 50 step
 
 ## Code
 
+Clone these forks — all fixes are already applied. The fixes sections below document what was changed and why.
+
 | Model | Repository |
 |---|---|
 | HiVT + TNT | [Muminul-Hoque/DAIR-V2X-Seq](https://github.com/Muminul-Hoque/DAIR-V2X-Seq) |
 | DenseTNT | [Muminul-Hoque/DenseTNT](https://github.com/Muminul-Hoque/DenseTNT) |
-
-Clone these forks — do not use the originals. The DenseTNT fork has all V2X-Seq fixes applied. See the [DenseTNT Fixes](#densetnt-fixes) section for details on what was changed and why.
 
 ## Dataset
 
@@ -77,7 +77,7 @@ ln -s ${FP}/map_files/yizhuang_PEK_halluc_bbox_table.npy ${FP}/yizhuang_PEK_hall
 ln -s ${FP}/map_files/yizhuang_PEK_tableidx_to_laneid_map.json ${FP}/yizhuang_PEK_tableidx_to_laneid_map.json
 ```
 
-In `TNT_plugin/core/util/preprocessor/tfd_preprocess.py`, change `num_workers=4` to `num_workers=0` (the default causes a deadlock). Then run:
+Then run:
 
 ```bash
 cd DAIR-V2X-Seq/projects/TNT_plugin/
@@ -237,17 +237,41 @@ echo y | python src/run.py \
 
 ---
 
+## TNT Fixes
+
+Two files were modified in `projects/TNT_plugin/`. All changes are already applied in [Muminul-Hoque/DAIR-V2X-Seq](https://github.com/Muminul-Hoque/DAIR-V2X-Seq).
+
+**`core/trainer/tnt_trainer.py`**
+
+1. **apex removed** — apex was unavailable on the training server. Replaced with standard PyTorch `DistributedDataParallel`.
+
+2. **cumsum fix** — eval was applying cumsum to ground truth positions, comparing absolute positions against raw displacement predictions. Without this fix, eval reports minADE ≈ 9.95m which is not a real metric. Removed cumsum from gt to match the prediction coordinate frame, giving the correct 5.42m.
+
+3. **num_workers=0** — the default value of 32 caused a deadlock when loading the processed cache.
+
+**`core/util/preprocessor/tfd_preprocess.py`**
+
+1. **num_workers=0** — same deadlock issue during preprocessing, fixed here as well.
+
+---
+
 ## DenseTNT Fixes
 
-Four bugs had to be fixed to get DenseTNT working on V2X-Seq. All are already applied in [Muminul-Hoque/DenseTNT](https://github.com/Muminul-Hoque/DenseTNT). Documented here for reference.
+Four bugs were fixed in `src/dataset_v2xseq.py`, plus import changes in `run.py` and `do_eval.py`. All changes are already applied in [Muminul-Hoque/DenseTNT](https://github.com/Muminul-Hoque/DenseTNT).
 
-**1. Coordinate frame (`dataset_v2xseq.py`)** — `cent_x` and `cent_y` were set to the UTM origin coordinates (~417894, 4730251). DenseTNT's `to_origin_coordinate()` uses these to transform predictions into global frame, producing minADE ≈ 4,749,687m. V2X-Seq data is already in local agent-centric frame, so `cent_x=0.0`, `cent_y=0.0`, `angle=0.0` is correct.
+**`src/run.py` and `src/do_eval.py`**
 
-**2. Missing `origin_labels` (`dataset_v2xseq.py`)** — `do_eval.py` accesses `mapping[i]['origin_labels']` which was not set in the adapter. Added `origin_labels=labels.astype(np.float32)` to the mapping dict in `convert_sample`.
+Both import `dataset_argoverse` by default. Changed to `dataset_v2xseq` in all four import locations. Also removed the `assert args.train_batch_size == 64` line which blocked training with other batch sizes.
 
-**3. `file_name` format (`dataset_v2xseq.py`)** — `do_eval.py` parses the filename as `int(filename[:-4])`, expecting format `"10.csv"`. The adapter was setting `file_name=seq_id` (just `"10"`), so stripping 4 characters produces `""`. Fixed by setting `file_name=seq_id + '.csv'`.
+**`src/dataset_v2xseq.py`**
 
-**4. Missing `post_eval` (`dataset_v2xseq.py`)** — `do_eval.py` imports `post_eval` from the dataset module. The original in `dataset_argoverse.py` calls the Argoverse1 evaluation API which is unavailable for V2X-Seq. A custom `post_eval` was added that computes minADE, minFDE, and MR directly.
+1. **Coordinate frame** — `cent_x` and `cent_y` were set to the UTM origin coordinates (~417894, 4730251). DenseTNT's `to_origin_coordinate()` uses these to transform predictions into global frame, producing minADE ≈ 4,749,687m. V2X-Seq data is already in local agent-centric frame, so `cent_x=0.0`, `cent_y=0.0`, `angle=0.0`.
+
+2. **Missing `origin_labels`** — `do_eval.py` accesses `mapping[i]['origin_labels']` which was not set in the adapter. Added `origin_labels=labels.astype(np.float32)` to the mapping dict.
+
+3. **`file_name` format** — `do_eval.py` parses the filename as `int(filename[:-4])`, expecting format `"10.csv"`. The adapter was setting `file_name=seq_id` (just `"10"`), so stripping 4 characters produces `""`. Fixed by setting `file_name=seq_id + '.csv'`.
+
+4. **Missing `post_eval`** — `do_eval.py` imports `post_eval` from the dataset module. The original in `dataset_argoverse.py` calls the Argoverse1 evaluation API which is unavailable for V2X-Seq. A custom `post_eval` was added that computes minADE, minFDE, and MR directly.
 
 ---
 
