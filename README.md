@@ -1,6 +1,6 @@
 # Reimplementing HiVT, TNT, and DenseTNT on V2X-Seq
 
-This repo contains the code and instructions to run HiVT, TNT, and DenseTNT as trajectory prediction baselines on the [V2X-Seq](https://github.com/AIR-THU/DAIR-V2X-Seq) dataset (cooperative vehicle-infrastructure subset, TFD split). All three models were originally designed for Argoverse. Getting them working on V2X-Seq required fixing several bugs in the evaluation pipelines — mostly coordinate frame mismatches and missing dataset adapter functions.
+This repo contains instructions and code to run HiVT, TNT, and DenseTNT as trajectory prediction baselines on the [V2X-Seq](https://github.com/AIR-THU/DAIR-V2X-Seq) dataset (cooperative vehicle-infrastructure subset, TFD split). All three models were originally designed for Argoverse. Getting them working on V2X-Seq required fixing several bugs in the evaluation pipelines — mostly coordinate frame mismatches and missing dataset adapter functions.
 
 ## Results
 
@@ -12,7 +12,16 @@ Evaluated on the V2X-Seq val split (10,229 scenes), prediction horizon = 50 step
 | DenseTNT | 2.00 | 2.93 | 0.318 |
 | HiVT | 1.10 | 1.91 | 0.286 |
 
-These numbers are not directly comparable to the V2X-Graph paper — they used a different split (V2X-Traj) on 8× RTX 3090s. These are standalone baselines on V2X-Seq TFD using a single RTX A6000.
+> These numbers are not directly comparable to the V2X-Graph paper — they used a different split (V2X-Traj) on 8× RTX 3090s. These are standalone baselines on V2X-Seq TFD using a single RTX A6000.
+
+## Code
+
+| Model | Repository |
+|---|---|
+| HiVT + TNT | [Muminul-Hoque/DAIR-V2X-Seq](https://github.com/Muminul-Hoque/DAIR-V2X-Seq) |
+| DenseTNT | [Muminul-Hoque/DenseTNT](https://github.com/Muminul-Hoque/DenseTNT) |
+
+Clone these forks — do not use the originals. The DenseTNT fork has all V2X-Seq fixes applied. See the [DenseTNT Fixes](#densetnt-fixes) section for details on what was changed and why.
 
 ## Dataset
 
@@ -122,20 +131,6 @@ python eval.py \
 
 ## TNT
 
-### Code Fix (required before training or eval)
-
-Open `core/trainer/tnt_trainer.py` and find the `test()` function (around line 264). Change:
-
-```python
-# wrong — model was trained on raw displacements, not absolute positions
-gt = data.y.unsqueeze(1).view(batch_size, -1, 2).cumsum(axis=1).numpy()
-
-# correct
-gt = data.y.unsqueeze(1).view(batch_size, -1, 2).numpy()
-```
-
-Without this fix, eval reports minADE ≈ 9.95m which is not a real metric — it's the result of comparing cumsum ground truth against raw displacement predictions. The actual model error after the fix is 5.42m.
-
 ### Training
 
 ```bash
@@ -180,22 +175,6 @@ pip install cython
 cython -a utils_cython.pyx && python setup.py build_ext --inplace
 cd ..
 ```
-
-In `src/run.py`, change both dataset imports from `dataset_argoverse` to `dataset_v2xseq` and remove the line `assert args.train_batch_size == 64`.
-
-In `src/do_eval.py`, change both imports from `dataset_argoverse` to `dataset_v2xseq`.
-
-### Fixes in dataset_v2xseq.py
-
-Four issues had to be fixed in the dataset adapter:
-
-**1. Coordinate frame** — `cent_x` and `cent_y` were set to the UTM origin coordinates (~417894, 4730251). DenseTNT's `to_origin_coordinate()` uses these to transform predictions into global frame, producing minADE ≈ 4,749,687m. V2X-Seq data is already in local agent-centric frame, so set `cent_x=0.0`, `cent_y=0.0`, `angle=0.0` in the mapping dict.
-
-**2. Missing origin_labels** — `do_eval.py` accesses `mapping[i]['origin_labels']` which was not set. Add `origin_labels=labels.astype(np.float32)` to the mapping dict in `convert_sample`.
-
-**3. file_name format** — `do_eval.py` parses the filename as `int(filename[:-4])`, expecting format `"10.csv"`. The adapter was setting `file_name=seq_id` (just `"10"`), so stripping 4 characters gives `""`. Set `file_name=seq_id + '.csv'`.
-
-**4. Missing post_eval** — `do_eval.py` imports `post_eval` from the dataset module. The original in `dataset_argoverse.py` calls the Argoverse1 evaluation API. A custom `post_eval` was added to `dataset_v2xseq.py` that computes minADE, minFDE, and MR directly.
 
 ### Stage 1 Training (16 epochs)
 
@@ -258,6 +237,20 @@ echo y | python src/run.py \
 
 ---
 
+## DenseTNT Fixes
+
+Four bugs had to be fixed to get DenseTNT working on V2X-Seq. All are already applied in [Muminul-Hoque/DenseTNT](https://github.com/Muminul-Hoque/DenseTNT). Documented here for reference.
+
+**1. Coordinate frame (`dataset_v2xseq.py`)** — `cent_x` and `cent_y` were set to the UTM origin coordinates (~417894, 4730251). DenseTNT's `to_origin_coordinate()` uses these to transform predictions into global frame, producing minADE ≈ 4,749,687m. V2X-Seq data is already in local agent-centric frame, so `cent_x=0.0`, `cent_y=0.0`, `angle=0.0` is correct.
+
+**2. Missing `origin_labels` (`dataset_v2xseq.py`)** — `do_eval.py` accesses `mapping[i]['origin_labels']` which was not set in the adapter. Added `origin_labels=labels.astype(np.float32)` to the mapping dict in `convert_sample`.
+
+**3. `file_name` format (`dataset_v2xseq.py`)** — `do_eval.py` parses the filename as `int(filename[:-4])`, expecting format `"10.csv"`. The adapter was setting `file_name=seq_id` (just `"10"`), so stripping 4 characters produces `""`. Fixed by setting `file_name=seq_id + '.csv'`.
+
+**4. Missing `post_eval` (`dataset_v2xseq.py`)** — `do_eval.py` imports `post_eval` from the dataset module. The original in `dataset_argoverse.py` calls the Argoverse1 evaluation API which is unavailable for V2X-Seq. A custom `post_eval` was added that computes minADE, minFDE, and MR directly.
+
+---
+
 ## Checkpoints
 
 Pretrained checkpoints are available at: *(add link)*
@@ -274,7 +267,7 @@ Pretrained checkpoints are available at: *(add link)*
 
 If you use this code, please cite the original papers:
 
-```
+```bibtex
 @inproceedings{zhou2022hivt,
   title={HiVT: Hierarchical Vector Transformer for Multi-Agent Motion Prediction},
   author={Zhou, Zikang and Ye, Luyao and Wang, Jianping and Wu, Kui and Lu, Kejie},
