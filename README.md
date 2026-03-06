@@ -13,7 +13,6 @@ Evaluated on the V2X-Seq val split (10,229 scenes), prediction horizon = 50 step
 | HiVT (embed_dim=64) | 1.283 | 2.389 | 0.352 |
 | HiVT (embed_dim=128) | 1.10 | 1.91 | 0.286 |
 
-> These numbers are not directly comparable to the V2X-Graph paper — they used a different split (V2X-Traj) on 8× RTX 3090s. These are standalone baselines on V2X-Seq TFD using a single RTX A6000.
 
 ## Code
 
