@@ -10,7 +10,8 @@ Evaluated on the V2X-Seq val split (10,229 scenes), prediction horizon = 50 step
 |---|---|---|---|
 | TNT | 5.42 | 10.10 | 0.342 |
 | DenseTNT | 2.00 | 2.93 | 0.318 |
-| HiVT | 1.10 | 1.91 | 0.286 |
+| HiVT (embed_dim=64) | 1.283 | 2.389 | 0.352 |
+| HiVT (embed_dim=128) | 1.10 | 1.91 | 0.286 |
 
 > These numbers are not directly comparable to the V2X-Graph paper — they used a different split (V2X-Traj) on 8× RTX 3090s. These are standalone baselines on V2X-Seq TFD using a single RTX A6000.
 
@@ -124,7 +125,7 @@ python eval.py \
     --root ${DATA_ROOT} \
     --batch_size 32 \
     --num_workers 4 \
-    --ckpt_path lightning_logs/version_X/checkpoints/best.ckpt
+    --ckpt_path /path/to/checkpoint.ckpt
 ```
 
 ---
@@ -277,13 +278,15 @@ Both import `dataset_argoverse` by default. Changed to `dataset_v2xseq` in all f
 
 ## Checkpoints
 
-Pretrained checkpoints are available at: *(add link)*
+Pretrained checkpoints are in the `checkpoints/` folder of this repo.
 
-| Model | File | val_minFDE |
-|---|---|---|
-| HiVT (embed_dim=128) | hivt_epoch63.ckpt | 1.911 |
-| TNT | final_TNT.pth | — |
-| DenseTNT Stage 2 | model.6.bin | — |
+| Model | File | minADE | minFDE | MR |
+|---|---|---|---|---|
+| HiVT (embed_dim=128) | [epoch=63-step=102335.ckpt](checkpoints/HiVT-128/checkpoints/epoch=63-step=102335.ckpt) | 1.10 | 1.91 | 0.286 |
+| HiVT (embed_dim=64) | [epoch=63-step=51199.ckpt](checkpoints/HiVT-64/checkpoints/epoch=63-step=51199.ckpt) | 1.283 | 2.389 | 0.352 |
+| TNT | [final_TNT.pth](checkpoints/TNT/final_TNT.pth) | 5.42 | 10.10 | 0.342 |
+| DenseTNT Stage 1 | [model.16.bin](checkpoints/DenseTNT/stage1/model.16.bin) | — | — | — |
+| DenseTNT Stage 2 | [model.6.bin](checkpoints/DenseTNT/stage2/model.6.bin) | 2.00 | 2.93 | 0.318 |
 
 ---
 
